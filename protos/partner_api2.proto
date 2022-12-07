@@ -1,0 +1,442 @@
+syntax = "proto3";            
+import "google/protobuf/wrappers.proto";
+
+package emporiaenergy.partner_api_2;
+
+option java_multiple_files = true;
+option java_package = "com.emporiaenergy.partnerapi2";
+option java_outer_classname = "PartnerApi2";
+
+/**
+ * The methods available from the Emporia Energy Partner API.  The Emporia API is available via gRPC at
+ * URL:  partner.emporiaenergy.com 
+ * PORT: 50052				
+ * 
+ * The deprecated V1 of the API is available on port 50051
+ *
+ * Clients should be prepared to handle the following errors:
+ * 		Status.UNAUTHENTICATED if the auth_token is invalid
+ * 		Status.INVALID_ARGUMENT and a description of the problem if the request is invalid
+ * 
+ * The changes from the v1 of the PartnerApi:
+ * 		the package name changed from protos to emporiaenergy.partner_api_2
+ * 		methods no longer include a ResultStatus enum, authorization errors are indicated via onError
+ * 		Adding support for listing and controlling Emporia EVChargers and Batteries
+ * 
+ * The Update methods for EVChargers and Batteries take a settings structure that allows the caller to specify one 
+ * or more settings to change.  Anything that is not specified isn't changed by the update call.  This requires using
+ * Google's protobuf wrappers such as BoolValue rather than bool since with a plain bool we can't tell if it was 
+ * set to false or not set at all.     
+ */
+service PartnerApi
+{
+    // login with the email and password you use on the portal website and get back an auth_token
+    rpc Authenticate( AuthenticationRequest ) returns ( AuthenticationResponse );
+    
+    // get the collection of devices associated to your partner account, 
+    // optionally limited to devices related to one or more customer emails
+    rpc GetDevices( DeviceInventoryRequest ) returns ( DeviceInventoryResponse );
+    
+    // get usage data for one or more devices
+    rpc GetUsageData( DeviceUsageRequest ) returns ( DeviceUsageResponse );
+    
+    // get the details for one or more Utility Connect devices
+    rpc ListUtilityConnects( ListDevicesRequest ) returns ( UtilityConnectsResponse );
+    
+    // get the details for one or more Outlets, specifically if they are on or off
+    rpc ListOutlets( ListDevicesRequest ) returns ( OutletsResponse );
+    
+    // Set one or more Outlets to be on or off.  
+    // Only the devices that were changed will be included in the response; devices that
+    // aren't connected to the cloud or were already in the requested state won't be included
+    rpc UpdateOutlets( UpdateOutletsRequest ) returns ( OutletsResponse );
+    
+    // returns details about the specified EVChargers
+    rpc ListEVChargers(ListDevicesRequest) returns (EVChargersResponse);
+    
+    // change the settings for one or more EVChargers
+    // Only the devices that were changed will be included in the response; devices that
+    // aren't connected to the cloud or were already in the requested state won't be included
+    rpc UpdateEVChargers(UpdateEVChargersRequest) returns (EVChargersResponse);
+    
+    // returns details about the specified Batteries
+    rpc ListBatteries(ListDevicesRequest) returns (BatteriesResponse);
+    
+    // change the settings for a single Battery 
+    // Only the devices that were changed will be included in the response; devices that
+    // aren't connected to the cloud or were already in the requested state won't be included
+    rpc UpdateBatteries(UpdateBatteriesRequest) returns (BatteriesResponse);
+}
+
+// All API access is controlled using authorization tokens.  You should use the same email and password used to 
+// access the Emporia Partner Portal to access the API.  
+message AuthenticationRequest
+{
+    // partner email from the partner portal website 
+    string partner_email = 1;
+    // password the partner uses to login to the partner portal website
+    string password = 2;
+}
+
+message AuthenticationResponse
+{
+    // the authorization token that you need to include with all other calls to the API
+    string auth_token = 1;
+}
+
+// request information on the devices associated to the partner
+message DeviceInventoryRequest
+{
+    string auth_token = 1;
+    // If empty, return all devices associated with partner
+    // if not empty, return all the devices associated to the partner AND to the specified customer email(s) 
+    repeated string customer_emails = 2;
+}
+
+// returns some or all of the devices associated with the partner
+message DeviceInventoryResponse
+{
+    // list of devices associated with the partner
+    repeated Device devices = 1;
+
+    // Some Devices may contain fields that are not set. 
+    message Device
+    { 
+    	enum DeviceModel       
+        {
+        	UNKNOWN				= 0;
+        	// The first generation energy monitor, aka Vue1.  Has one-three 200 amp CTs on the Mains and up to eight 50 amp CTs on expansion circuits.  VUE001 in the V1 API
+        	Vue1 				= 6;   
+        	// The second generation energy monitor, aka Vue2. Has one-three 200 amp CTs on the Mains and up to sixteen 50 amp CTs on expansion circuits.  VUE002 in the V1 API
+        	Vue2 				= 1;
+        	// Utility Connect energy monitor, which connects to Smart Meters using Smart Energy Protocol over Zigbee; has a single Mains circuit that matches the paired meter.  ZIG001 / Zigbee in the V1 API.
+        	UtilityConnect 		= 2;
+        	// Smart Outlet for 120V North American use; has a single Mains circuit for the load of the plugged in device.  SSO001 in the V1 API.  
+        	Outlet				= 3;
+        	// Smart EV Charger; single mains circuit which may report up to 48A at ~240V
+        	EVCharger			= 4;
+        	// Emporia Home Battery
+        	Battery				= 5;
+        }
+    	    	
+        string 			manufacturer_device_id 	= 1;			// identifies this device for future API requests such as building DeviceUsageRequest
+        DeviceModel 	model 					= 2;			// the model (aka type) of the device
+        string 			firmware 				= 3;			// the firmware version running on device
+        bool 			solar 					= 4;			// for monitor devices, indicates if the main CTs are monitoring bi-directional power flow; i.e., the device is monitoring a house with solar or generation
+        double 			latitude 				= 5;			// if known, the location of the device (set from the phone when the customer onboards the device)
+        double 			longitude 				= 6;
+        string 			device_name 			= 7;			// name of the device as chosen by the customer
+        string 			timezone 				= 8;			// the time-zone that the user has chosen or UTC if they haven't picked a time-zone
+        repeated string channel_names 			= 9 [deprecated=true];		// name of the channels as chosen by the customer or defaulted by the Emporia cloud.  This has been replaced by the circuit_infos which provides additional information.
+        bool 			device_connected 		= 10;			// is this device currently connected to the Emporia cloud.        
+        
+        repeated CircuitInfo circuit_infos = 13;				// the details about the circuits of this device.
+        
+        // describes a single circuit which is monitored by a single CT  
+        message CircuitInfo
+        {
+        	uint32 			channel_number		= 1;		// see the DeviceModel enum for a discussion of how many circuits each kind of Device has
+        	CircuitType 	type 				= 2;		// see the description of the possible values in the CircuitType enum
+        	EnergyDirection energy_direction 	= 3;		// what direction is the power flow this CT is monitoring?
+        	string 			sub_type			= 4;		// optionally chosen by the customer for Vue Expansion circuits.  Or set by Emporia for Battery circuits.  May be empty (not set)
+        	string			name				= 5;		// optional name entered by the Customer, may be empty (not set) and the customer can change it freely        	
+
+			// classifies the reported energy based on the device's configuration
+        	enum CircuitType
+        	{
+        		UNKNOWN_TYPE		= 0;
+        		Vue_200A_Main		= 1;					// Vue1 or Vue2 200A Mains CT, will be circuit number 1, 2 or 3 
+        		Vue_50A_Expansion	= 2;					// will be circuit number 4-19 for a Vue2 or 4-11 for a Vue1
+        		Main				= 3; 					// the single circuit for the device, applies to Outlet, EV Charger or Utility Connect devices
+        		Battery				= 4;					// one of the circuits monitored by the Battery, see the sub_type for details as to which power flow
+        	}
+        	
+        	// Which direction is the energy on this circuit flowing?  This is set based on how the customer configured the system.
+        	enum EnergyDirection
+        	{
+        		UNKNOWN_DIRECTION	= 0;
+        		Consumption			= 1;					// energy usage is treated as consumption (watt-hours will be positive), even if the CT is installed backwards
+        		Generation			= 2;					// energy usage is treated as generation (watt-hours will be negative), even if the CT is installed backwards
+        		Bidirectional		= 3;		        	// the CT is treated as directional and may report both consumption (positive) and generation (negative) watt-hours	
+        	}
+        }
+        
+        /** Some Partners are not allowed to see customer information so this list will be empty.  There might also not be a customer associated to this device
+         * or there might be several customers associated, which is why this is a repeated field */
+        repeated CustomerInfo customers = 12;
+        // describes a customer that is associated to this device        
+        message CustomerInfo
+        {
+            string first_name = 1;
+            string last_name = 2;
+            string email = 3;
+        }
+    }
+}
+
+/**
+ * Defines the time covered by the returned usage "bars".  Historical data is returned in buckets covering the requested duration.  
+ * For example, requesting 2 hours of FifteenMinutes data will return 8 items. As described in the ChannelUsageData definition, 
+ * the returned usage is in watt-hours.
+ */ 
+enum DataResolution
+{
+	Minutes				= 0;
+	FifteenMinutes		= 1;
+	Hours				= 2;
+	Days				= 3;
+	Weeks				= 4;
+	Months				= 5;
+	Years				= 6;
+}
+
+// Get historical usage for the specified time range and scale
+// Usage is returned for each of the specified devices, allowing usage data to be queried 
+// for a single device or group of devices in a single call. 
+message DeviceUsageRequest
+{
+    string auth_token = 1;
+
+    // start and end are specified as seconds since epoch (January 1, 1970) in the UTC timezone.
+    uint64 start_epoch_seconds = 2;
+    uint64 end_epoch_seconds = 3;
+    // What resolution data should be fetched?  
+    DataResolution scale = 4;		
+
+	// Specifies which data channels to fetch, see the DeviceUsageResponse message for more details
+	enum UsageChannel
+	{
+		// the Main channels, will be 1 channel for Plugs, Zigbees and EVSEs and up to 3 channels for Vue1s and Vue2s
+	    MAINS = 0;		
+	    // in additions to the Mains channels from above, will include expansion channels, could be up to 19 channels for a Vue2 (3 mains and 16 50A CTs)
+	    ALL = 1;		
+	}
+
+    // which channels of data should be fetched?
+    UsageChannel channels = 5;
+
+    // list of device ids, this must be populated or the response will be empty
+    repeated string manufacturer_device_ids = 6;
+}
+
+// Emporia produces a range of devices that vary in the data they measure.
+// Outlets, EVChargers and UtilityConnects (Zigbees) devices have only one circuit: #1
+// Vue and Vue2 monitors have up to 3 200amp CTs, reporting on circuits 1, 2 and 3.  The app sums the usage
+// for those circuits and displays it as Mains.  These devices may also have up to 16 50amp CTs which are
+// reported on circuits 4-19.  
+message DeviceUsageResponse
+{
+    repeated DeviceUsage device_usages = 1;
+
+    // Represents usage for a single Emporia device.  The bucket_epoch_seconds is when this "bucket" of usage started
+    // for this device.  For time scales of Days and longer, this may be different from the requested data range.
+    // For example, if you have a device in Mountain time and a device in Pacific time and you request daily
+    // data from 10am UTC (+6 to Mountain and +7 to Pacific) to 2pm UTC the returned DeviceUsages will 
+    // start at 6am UTC for the Mountain device and 7am UTC for the Pacific device since we calculate Daily, Monthly, etc
+    // usage from the perspective of the Device's timezone.   
+    message DeviceUsage
+    {
+        string manufacturer_device_id = 1;
+        // echos back the requested scale
+        DataResolution scale = 2;
+        // a list of the Instants of the energy usage data that is being returned in the usages list contained in each channel_usages item.  These are in 
+        // ascending order, the most recent time will be at the end.  
+        repeated uint64 bucket_epoch_seconds = 3;
+        // a list of per channel usage information, there will be one item for each channel of data being reported
+        repeated ChannelUsageData channel_usages = 4;
+        
+        // The usage is energy consumed over the bucket in watt-hours.  So a 100 watt load over a one hour bucket 
+        // will report 100 watt-hours, while the same 100 watt load over a minute bucket will report 1.666 watt-hours (100/60).
+        message ChannelUsageData
+        {
+            // the channel that the data is for
+            uint32 channel = 1;
+            // the usage in watt-hours, see the above comment for interpreting watt-hours for scales shorter than one hour
+            // this list will be the same length as bucket_epoch_seconds, you can use those timestamps to know the Instant for each item
+            repeated double usages = 2;
+        }
+    }
+}
+
+// Query one or more devices by specifying MDIs. 
+message ListDevicesRequest
+{
+    string auth_token = 1;
+    // list of device ids, this must be populated or the response will be empty
+    repeated string manufacturer_device_ids = 2;
+}
+
+// Response describing the On/Off status of an Emporia Outlet.  
+message UtilityConnectsResponse
+{
+    repeated UtilityConnect utility_connects = 1;
+}
+
+/** Describes a Utility Connect (Emporia device that connects to an AMI Smart Meter using the Zigbee protocol) */
+message UtilityConnect
+{
+    string manufacturer_device_id = 1;
+    /** the MAC of the Zigbee radio */  
+    string zigbee_mac = 12;
+}
+
+// Response describing the On/Off status of an Emporia Outlet.  
+// If device_connected for an Outlet is false, the On/Off status may be out of date
+message OutletsResponse
+{
+    repeated OutletSettings outlets = 1;
+}
+
+// Represents a single Emporia Outlet.  This is used both in the response from 
+// the API describing the current state and in the UpdateOutlets method to turn an Outlet on or off.
+message OutletSettings
+{
+    string manufacturer_device_id = 1;
+	// If device_connected for an Outlet is false, the On/Off status may be out of date
+    bool on = 2;
+}
+
+// Used by the UpdateOutlets method to turn an Outlet on or off
+message UpdateOutletsRequest
+{
+    string auth_token = 1;
+    // a list of one or more outlets with on set to the desired on/off state
+    repeated OutletSettings outlets = 2;
+}
+
+message EVChargersResponse
+{
+	repeated EVCharger evchargers = 1;		
+}
+
+/** Describes an Emporia EV Charger, a WiFi connected 48 amp level 2 Electric Vehicle charger
+ * The MDI is stored in the Settings so that it can be sent back to the API to change the settings
+ * 
+ * If the device is not currently connected to the Emporia cloud (check the device_connected that is part of Device in the DeviceInventoryResponse),
+ * the car_connected and car_charging flags below may be out of date and a call to UpdateEVChargers will fail 
+ */
+message EVCharger
+{ 
+    // is there a car connected to the EV Charger?  
+    bool car_connected = 1;
+    // is the car actively taking power from the charger?  If the car is connected but full or the charger is not set to On then this will be false 
+    bool car_charging = 2;
+    // maximum rate that the charger may be set at; configured by the customer based on their breaker size
+    uint32 max_charge_rate_amps = 3;
+
+    // the settings that may be changed using the API, starting at a higher index to leave room for additional non-changeable fields
+    EVChargerSettings settings = 10;
+}
+
+// changes one or more EVChargers to the requested settings
+message UpdateEVChargersRequest
+{
+	string 				auth_token = 1;
+	// one or more ev chargers to update; the caller must set at least one of the changeable fields in each BatterySettings.  
+	repeated EVChargerSettings settings = 2;
+}
+
+/**
+ * The EVChargers's settings, this structure is both returned to partners and sent back to Emporia to control the battery.  
+ * When returned from Emporia to a client all the fields will be set; i.e., both the on and charge_rate_amps will be set.
+ * When sent to Emporia to change the battery settings it is not required to set all the fields in settings.
+ * I.e., you can change charge_rate_amps without setting the on field.
+ */
+message EVChargerSettings
+{
+	// identifies this device 
+    string manufacturer_device_id = 1;
+	
+	// Is the charger set to charge?
+    google.protobuf.BoolValue 	on = 2;
+    // must be between 6 and the max_charge_rate_amps (inclusive)
+    google.protobuf.UInt32Value charge_rate_amps = 3;
+}
+
+message BatteriesResponse
+{
+	repeated Battery batteries = 1;		
+}
+
+/**
+ * Describes an Emporia Battery, a WiFi connected home battery with Weeyu inverter and Alpha battery packs
+ * If the device is not currently connected to the Emporia cloud (device_connected for the Device in the DeviceInventoryResponse is false),
+ * the soc_percentage isn't known and won't be provided.  Call UpdateBatteries will also fail for a disconnected Battery.
+ */
+message Battery
+{ 
+    // the maximum capacity of the battery in kilowatt-hours
+    double capacity_kwhs = 1;
+    // the maximum power of the inverter in kWatts
+    double inverter_max_power_kwatts = 2;
+    // the current State of Charge of the battery, as a percentage 1 to 100 (inclusive) 
+    google.protobuf.DoubleValue soc_percentage = 3;
+    
+    // the settings that may be changed using the API, starting at a higher index to leave room for additional non-changeable fields
+    BatterySettings settings = 10;        
+}
+
+// changes one or more Batteries to the requested settings
+message UpdateBatteriesRequest
+{
+	string auth_token = 1;
+	
+	// one or more batteries to update; the caller must set at least one of the changeable fields in each BatterySettings.  
+	repeated BatterySettings settings = 2;
+}
+
+/**
+ * The battery's settings, this structure is both returned to partners and sent back to Emporia to control the battery  
+ * When returned from Emporia to a client both the reserve_soc_percentage and dispatch_mode will be set.
+ * When sent to Emporia to change the battery settings it is not required to set all the fields in settings.
+ * I.e., you can change reserve_soc_percentage or dispatch_mode without affecting the other field.
+ */
+message BatterySettings
+{
+	// identifies this device 
+    string manufacturer_device_id = 1;
+	
+    // the battery capacity to reserve, the battery will not discharge below this level; 1 to 100 (inclusive)
+    google.protobuf.DoubleValue reserve_soc_percentage = 2;
+
+	// what dispatch mode should the battery be in (defined below), leaving room below index 10 for future settings
+	oneof dispatch_mode {
+		LoadFollowing 				load_following 					= 10;
+		ChargeWithExcessSolar	 	charge_with_excess_solar		= 11;
+		ChargeToStateOfCharge		charge_to_state_of_charge 		= 12;
+		DischargeToStateOfCharge 	discharge_to_state_of_charge 	= 13;
+		Idle						idle							= 14;
+	}
+
+	// if there is excess solar, will charge up to power_kwatts and sends the rest to the grid
+	// if there is load, will discharge up to power_kwatts to zero the load.  If load is less than power_kwatts, will discharge to match the load
+	message LoadFollowing
+	{
+		// positive power threshold, will not charge or discharge higher than this
+		google.protobuf.DoubleValue power_kwatts = 1;
+	}
+	// battery does not discharge.  If there is excess solar, charge to 100% SoC at a maximum of charge_power_kwatts
+	message ChargeWithExcessSolar 
+	{
+		// positive power value to charge at
+		google.protobuf.DoubleValue charge_power_kwatts = 1;
+	}
+	// charge to soc_percentage at charge_power_kwatts using solar and grid as needed; once the battery is at SoC, stop 
+	message ChargeToStateOfCharge
+	{
+	    // 1 to 100 (inclusive) but will not violate the reserve_soc_percentage
+		google.protobuf.DoubleValue soc_percentage = 1;
+		// positive power value to charge at
+		google.protobuf.DoubleValue charge_power_kwatts = 2;
+	}	
+	// discharge to soc_percentage at discharge_power_kwatts, may push to the grid; once the battery is at SoC, stop  
+	message DischargeToStateOfCharge
+	{
+	    // 1 to 100 (inclusive) but will not violate the reserve_soc_percentage
+		google.protobuf.DoubleValue soc_percentage = 1;
+		// positive power value to discharge at
+		google.protobuf.DoubleValue discharge_power_kwatts = 2;
+	}
+	// battery will not charge or discharge	
+	message Idle  {}	
+}

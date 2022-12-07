@@ -6,8 +6,12 @@ import os
 import pathlib
 import sys
 import time
+from contextlib import closing
 
 import grpc
+
+import mysql.connector
+
 
 import partner_api2_pb2_grpc as api
 from partner_api2_pb2 import *
@@ -43,6 +47,14 @@ vue2_list = [dev for dev in devices if dev.model == DeviceInventoryResponse.Devi
 
 # Prepare the results
 results = {}
+
+
+def write_to_db():
+    with closing(mysql.connector.connect(**config['db'])) as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute('INSERT INTO xyz (x, y, z) VALUES (?,?,?)',
+                        [0, 0, 0])
+            result = cur.fetchall()
 
 
 def get_heater_energy(vue2: DeviceInventoryResponse.Device.DeviceModel.Vue2):

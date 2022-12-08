@@ -150,34 +150,6 @@ def get_detailed_energy_csv() -> str:
     return csv_file.read()
 
 
-def get_energy_summary():
-    usage_request = DeviceUsageRequest()
-    usage_request.auth_token = auth_token
-
-    now = math.ceil(time.time())  # seconds as integer
-    usage_request.start_epoch_seconds = now - 900  # one fifteen minute period
-    usage_request.end_epoch_seconds = now
-    usage_request.scale = DataResolution.FifteenMinutes
-    usage_request.channels = DeviceUsageRequest.UsageChannel.MAINS
-    usage_request.manufacturer_device_ids.extend([_.manufacturer_device_id for _ in devices])
-
-    usage_response = stub.GetUsageData(usage_request)
-
-    usages = []
-    timestamp = None
-    for device_usage in usage_response.device_usages:
-        mains_usage = sum([_.usages[0] for _ in device_usage.channel_usages])
-        usages.append(mains_usage)
-
-        # Determine what period this data is for
-        if device_usage.bucket_epoch_seconds[0] != timestamp:
-            if timestamp is not None:
-                print('Mismatched data...', timestamp, device_usage.bucket_epoch_seconds[0])
-            timestamp = device_usage.bucket_epoch_seconds[0]
-
-    print(timestamp, sum(usages), len(usages))
-
-
 if __name__ == "__main__":
 
     get_detailed_energy_csv()

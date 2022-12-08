@@ -93,6 +93,10 @@ def get_detailed_usage() -> (List[List[dict]], int):
                 for channel in usage_response.device_usages[0].channel_usages:
                     if channel.channel == circuit.channel_number:
                         circuit_data['usage'] = channel.usages[0]
+                if circuit_data['type'] == '':
+                    circuit_data['type'] = 'Unspecified/Unknown'
+                if circuit_data['type'] == 'Solar/Generation':
+                    circuit_data['usage'] = -circuit_data['usage']
                 # Only return circuits with usage
                 if 'usage' in circuit_data:
                     circuits.append(circuit_data)
@@ -103,12 +107,14 @@ def get_detailed_usage() -> (List[List[dict]], int):
 
 def get_usage_by_circuit_type(usage_data: List[List[dict]], circuit_type: str) -> Tuple[float, int]:
     """
-    Currently known circuit types:
-    'Mains', 'Clothes Dryer', 'Cooktop/Range/Oven/Stove', 'Clothes Washer', 'Battery',
+    Known circuit types when written:
+    'Clothes Dryer', 'Cooktop/Range/Oven/Stove', 'Clothes Washer', 'Battery',
     'Water Heater', 'Humidifier/Dehumidifier', 'Fridge/Freezer','Air Conditioner',
     'Boiler', 'Lights', 'Sub Panel', 'Heat Pump', 'Dishwasher', 'Other', 'Microwave',
     'Pump', 'Garage/Shop/Barn/Shed', 'Kitchen', 'Solar/Generation', 'Room/Multi-use Circuit',
-    'Electric Vehicle/RV', 'Hot Tub/Spa', 'Computer/Network', 'Furnace'
+    'Electric Vehicle/RV', 'Hot Tub/Spa', 'Computer/Network', 'Furnace',
+    // These two are created in this code and are not native to the API
+    'Mains', 'Unspecified/Unknown'
 
     Returns the total usage of circuits of the type, and the number of devices
     with circuits of the type. Note: multiple circuits in one home may be of the same type.
@@ -151,6 +157,4 @@ def get_detailed_energy_csv() -> str:
 
 
 if __name__ == "__main__":
-
     get_detailed_energy_csv()
-    #get_energy_summary()

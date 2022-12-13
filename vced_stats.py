@@ -44,12 +44,13 @@ inventoryResponse = stub.GetDevices(inventoryRequest)
 devices = [dev for dev in inventoryResponse.devices if dev.model == DeviceInventoryResponse.Device.DeviceModel.Vue2]
 
 
-def write_to_db():
+def write_to_db(values: List[dict]):
     with closing(mysql.connector.connect(**config['db'])) as conn:
         with closing(conn.cursor()) as cur:
-            cur.execute('INSERT INTO xyz (x, y, z) VALUES (?,?,?)',
-                        [0, 0, 0])
-            result = cur.fetchall()
+            for data in values:
+                cur.execute('INSERT IGNORE INTO usage_data (channel_usage, homes, circuit_type, timestamp) VALUES (%s, %s, %s, %s, %s);',
+                            [data['usage'], data['homes'], data['circuit_type', 'timestamp']])
+        conn.commit()
 
 
 def get_detailed_usage() -> (List[List[dict]], int):
@@ -133,7 +134,7 @@ def get_usage_by_circuit_type(usage_data: List[List[dict]], circuit_type: str) -
     return total_usage, found_homes_with_circuit
 
 
-def get_detailed_energy_csv() -> str:
+def get_detailed_energy_summary() -> List[dict]:
     usage, timestamp = get_detailed_usage()
 
     # Determine the unique circuit types
@@ -148,13 +149,22 @@ def get_detailed_energy_csv() -> str:
         type_data = get_usage_by_circuit_type(usage, circuit_type)
         summary.append({'usage': type_data[0], 'homes': type_data[1], 'circuit_type': circuit_type, 'timestamp': timestamp})
 
+    return summary
+
+
+if __name__ == "__main__":
+    summary = get_detailed_energy_summary()
+
+    # Write results to the DB, if possible
+    try:
+        write_to_db(summary)
+    except mysql.connector.errors.DatabaseError as e:
+        print(f'Failed to save to database. Error: {e}')
+
     # Render results as CSV
     csv_file = StringIO()
     csv_writer = csv.DictWriter(csv_file, fieldnames=['timestamp', 'circuit_type', 'usage', 'homes'])
     csv_writer.writerows(summary)
     csv_file.seek(0)
-    return csv_file.read()
+    print(csv_file.read())
 
-
-if __name__ == "__main__":
-    get_detailed_energy_csv()

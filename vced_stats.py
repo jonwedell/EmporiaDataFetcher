@@ -156,7 +156,7 @@ if __name__ == "__main__":
     summary = get_detailed_energy_summary()
 
     # Write results to the DB, if possible
-    if 'db' in config:
+    if 'db' in config and config['user'] != 'changeme':
         write_to_db(summary)
 
     # Render results as CSV

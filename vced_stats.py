@@ -156,10 +156,8 @@ if __name__ == "__main__":
     summary = get_detailed_energy_summary()
 
     # Write results to the DB, if possible
-    try:
+    if 'db' in config:
         write_to_db(summary)
-    except mysql.connector.errors.DatabaseError as e:
-        print(f'Failed to save to database. Error: {e}')
 
     # Render results as CSV
     csv_file = StringIO()

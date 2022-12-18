@@ -48,8 +48,8 @@ def write_to_db(values: List[dict]):
     with closing(mysql.connector.connect(**config['db'])) as conn:
         with closing(conn.cursor()) as cur:
             for data in values:
-                cur.execute('INSERT IGNORE INTO usage_data (channel_usage, homes, circuit_type, timestamp) VALUES (%s, %s, %s, %s, %s);',
-                            [data['usage'], data['homes'], data['circuit_type', 'timestamp']])
+                cur.execute('INSERT IGNORE INTO usage_data (channel_usage, homes, circuit_type, timestamp) VALUES (%s, %s, %s, %s);',
+                            [data['usage'], data['homes'], data['circuit_type'], data['timestamp']])
         conn.commit()
 
 
@@ -156,7 +156,7 @@ if __name__ == "__main__":
     summary = get_detailed_energy_summary()
 
     # Write results to the DB, if possible
-    if 'db' in config and config['user'] != 'changeme':
+    if 'db' in config and config['db']['user'] != 'changeme':
         write_to_db(summary)
 
     # Render results as CSV

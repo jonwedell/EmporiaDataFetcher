@@ -42,7 +42,7 @@ inventoryResponse = stub.GetDevices(inventoryRequest)
 devices = [dev for dev in inventoryResponse.devices if dev.model == DeviceInventoryResponse.Device.DeviceModel.Vue2]
 
 
-def write_to_db(values: List[dict]):
+def write_to_db(values: List[dict]) -> None:
     with closing(mysql.connector.connect(**config['db'])) as conn:
         with closing(conn.cursor()) as cur:
             for data in values:
@@ -53,17 +53,44 @@ def write_to_db(values: List[dict]):
         conn.commit()
 
 
-def store_detailed_usage() -> List[dict]:
+def get_most_recent_timestamp() -> (int, int):
+    with closing(mysql.connector.connect(**config['db'])) as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute('SELECT max(timestamp) AS most_recent FROM usage_data;', [])
+        # TODO: I'm not positive what the mysql cursor returns - the next line may
+        #  need to be replaced with
+        #  return cur.fetchone()['most_recent']
+        try:
+            # Overlap by 31 minutes to make sure no data is missed
+            since = cur.fetchone()[0] - 1860
+            one_week_ago = int(time.time()) - 604800
+            if since < one_week_ago:
+                print("Warning! No data records detected for more than a week. Fetching the next needed week "
+                      "rather than the most recent week.")
+                return since, since + 604800
+            else:
+                return since, None
+        except:
+            print('Detected first run, getting data for last week. If seen more than once, this code is buggy.')
+            return int(time.time()) - 604800, None
+
+
+def store_detailed_usage(since: int, until: int = None) -> List[dict]:
     """ Gets usage info for all circuits on all devices. Returns usage for all circuits as a
     list of a list of dictionaries, with the circuit info combined with usage.
     (Why didn't they design the API so that you don't have to combine the circuit types
-    manually?) """
+    manually?)
 
-    now = math.ceil(time.time())
+    Gets usage since the most recent timestamp.
+    """
+
+    if until is None:
+        until = math.ceil(time.time())
+
     usage_request = DeviceUsageRequest()
     usage_request.auth_token = auth_token
-    usage_request.start_epoch_seconds = now - 86400  # one day's worth of 15 minute intervals
-    usage_request.end_epoch_seconds = now
+    usage_request.start_epoch_seconds = since
+    usage_request.end_epoch_seconds = until
     usage_request.scale = DataResolution.FifteenMinutes
     usage_request.channels = DeviceUsageRequest.UsageChannel.ALL
     usage_request.manufacturer_device_ids.extend([_.manufacturer_device_id for _ in devices])
@@ -103,7 +130,8 @@ def store_detailed_usage() -> List[dict]:
 
 
 if __name__ == "__main__":
-    detailed_usage = store_detailed_usage()
+    get_data_since, get_data_until = get_most_recent_timestamp()
+    detailed_usage = store_detailed_usage(get_data_since, get_data_until)
 
     # Write results to the DB, if possible, otherwise print as CSV
     if 'db' not in config or 'user' not in config['db'] or config['db']['user'] == 'changeme':

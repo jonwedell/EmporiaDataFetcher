@@ -1,8 +1,8 @@
 # Vue Energy Data Fetcher
 
 This module queries the Emporia API to get summary usage for all tracked devices
-over the last 15-minute period and prints the results as a CSV, and also attempts
-to insert it into a database (if configured in the config.)
+over every 15-minute period in the last day. If DB information is configured,
+it inserts the results into the database. If not, it prints the results as a CSV.
 
 #### Install process
 

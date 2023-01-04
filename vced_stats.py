@@ -7,12 +7,10 @@ import pathlib
 import time
 from contextlib import closing
 from io import StringIO
-from typing import List, Tuple
+from typing import List
 
 import grpc
-
 import mysql.connector
-
 
 import partner_api2_pb2_grpc as api
 from partner_api2_pb2 import *
@@ -48,12 +46,14 @@ def write_to_db(values: List[dict]):
     with closing(mysql.connector.connect(**config['db'])) as conn:
         with closing(conn.cursor()) as cur:
             for data in values:
-                cur.execute('INSERT IGNORE INTO usage_data (channel_usage, homes, circuit_type, timestamp) VALUES (%s, %s, %s, %s);',
-                            [data['usage'], data['homes'], data['circuit_type'], data['timestamp']])
+                cur.execute(
+                    'INSERT IGNORE INTO usage_data (device_id, channel_id, channel_type, channel_direction, channel_usage, timestamp) VALUES (%s, %s, %s, %s, %s, %s);',
+                    [data['device_id'], data['channel_id'], data['channel_type'], data['channel_direction'], data['channel_usage'],
+                     data['timestamp']])
         conn.commit()
 
 
-def get_detailed_usage() -> (List[List[dict]], int):
+def store_detailed_usage() -> List[dict]:
     """ Gets usage info for all circuits on all devices. Returns usage for all circuits as a
     list of a list of dictionaries, with the circuit info combined with usage.
     (Why didn't they design the API so that you don't have to combine the circuit types
@@ -62,7 +62,7 @@ def get_detailed_usage() -> (List[List[dict]], int):
     now = math.ceil(time.time())
     usage_request = DeviceUsageRequest()
     usage_request.auth_token = auth_token
-    usage_request.start_epoch_seconds = now - 900  # one fifteen minute period
+    usage_request.start_epoch_seconds = now - 86400  # one day's worth of 15 minute intervals
     usage_request.end_epoch_seconds = now
     usage_request.scale = DataResolution.FifteenMinutes
     usage_request.channels = DeviceUsageRequest.UsageChannel.ALL
@@ -70,99 +70,49 @@ def get_detailed_usage() -> (List[List[dict]], int):
 
     usage_response = stub.GetUsageData(usage_request)
 
-    timestamp = None
-    response = []
-    for usage_data in usage_response.device_usages:
-
-        # Determine what period this data is for
-        if usage_data.bucket_epoch_seconds[0] != timestamp:
-            if timestamp is not None:
-                print('Mismatched data...', timestamp, usage_data.bucket_epoch_seconds[0])
-            timestamp = usage_data.bucket_epoch_seconds[0]
-
-        circuits = []
+    def get_circuit_info(manufacturer_id, channel_id):
         for vue2 in devices:
-            if usage_data.manufacturer_device_id != vue2.manufacturer_device_id:
-                continue
-            for circuit in vue2.circuit_infos:
-                circuit_data = {'channel_number': circuit.channel_number,
-                                'direction': circuit.energy_direction}
-                if circuit.channel_number < 4:
-                    circuit_data['type'] = 'Mains'
-                else:
-                    circuit_data['type'] = circuit.sub_type
-                for channel in usage_response.device_usages[0].channel_usages:
-                    if channel.channel == circuit.channel_number:
-                        circuit_data['usage'] = channel.usages[0]
-                if circuit_data['type'] == '':
-                    circuit_data['type'] = 'Unspecified/Unknown'
-                if circuit_data['type'] == 'Solar/Generation':
-                    circuit_data['usage'] = -circuit_data['usage']
-                # Only return circuits with usage
-                if 'usage' in circuit_data:
-                    circuits.append(circuit_data)
-        response.append(circuits)
+            if vue2.manufacturer_device_id == manufacturer_id:
+                for channel in vue2.circuit_infos:
+                    if channel.channel_number == channel_id:
+                        info = {'device_id': manufacturer_id, 'channel_id': channel_id, 'channel_direction': channel.energy_direction}
+                        if channel.channel_number < 4:
+                            info['channel_type'] = 'Mains'
+                        else:
+                            info['channel_type'] = channel.sub_type
+                        if info['channel_type'] == '':
+                            info['channel_type'] = 'Unspecified/Unknown'
+                        return info
+        raise ValueError('Failed to find device or channel - this is probably a mismatch in the API response.')
 
-    return response, timestamp
+    to_insert = []
+    for usage_data in usage_response.device_usages:
+        timestamps = {}
+        # Go through the timestamps
+        for position, timestamp in enumerate(usage_data.bucket_epoch_seconds):
+            timestamps[position] = timestamp
+        for channel_usage in usage_data.channel_usages:
+            circuit_data = get_circuit_info(usage_data.manufacturer_device_id, channel_usage.channel)
+            for pos, usage_at_time in enumerate(channel_usage.usages):
+                circuit_copy = circuit_data.copy()
+                circuit_copy['channel_usage'] = usage_at_time
+                circuit_copy['timestamp'] = timestamps[pos]
+                to_insert.append(circuit_copy)
 
-
-def get_usage_by_circuit_type(usage_data: List[List[dict]], circuit_type: str) -> Tuple[float, int]:
-    """
-    Known circuit types when written:
-    'Clothes Dryer', 'Cooktop/Range/Oven/Stove', 'Clothes Washer', 'Battery',
-    'Water Heater', 'Humidifier/Dehumidifier', 'Fridge/Freezer','Air Conditioner',
-    'Boiler', 'Lights', 'Sub Panel', 'Heat Pump', 'Dishwasher', 'Other', 'Microwave',
-    'Pump', 'Garage/Shop/Barn/Shed', 'Kitchen', 'Solar/Generation', 'Room/Multi-use Circuit',
-    'Electric Vehicle/RV', 'Hot Tub/Spa', 'Computer/Network', 'Furnace',
-    // These two are created in this code and are not native to the API
-    'Mains', 'Unspecified/Unknown'
-
-    Returns the total usage of circuits of the type, and the number of devices
-    with circuits of the type. Note: multiple circuits in one home may be of the same type.
-    """
-    total_usage = 0
-    found_homes_with_circuit = 0
-
-    for device in usage_data:
-        device_found_circuit = False
-        for circuit in device:
-            if circuit['type'] == circuit_type:
-                total_usage += circuit['usage']
-                device_found_circuit = True
-        if device_found_circuit:
-            found_homes_with_circuit += 1
-    return total_usage, found_homes_with_circuit
-
-
-def get_detailed_energy_summary() -> List[dict]:
-    usage, timestamp = get_detailed_usage()
-
-    # Determine the unique circuit types
-    types = set()
-    for device in usage:
-        for circuit in device:
-            types.add(circuit['type'])
-
-    # Determine usage for each circuit type
-    summary = []
-    for circuit_type in types:
-        type_data = get_usage_by_circuit_type(usage, circuit_type)
-        summary.append({'usage': type_data[0], 'homes': type_data[1], 'circuit_type': circuit_type, 'timestamp': timestamp})
-
-    return summary
+    return to_insert
 
 
 if __name__ == "__main__":
-    summary = get_detailed_energy_summary()
+    detailed_usage = store_detailed_usage()
 
-    # Write results to the DB, if possible
-    if 'db' in config and config['db']['user'] != 'changeme':
-        write_to_db(summary)
-
-    # Render results as CSV
-    csv_file = StringIO()
-    csv_writer = csv.DictWriter(csv_file, fieldnames=['timestamp', 'circuit_type', 'usage', 'homes'])
-    csv_writer.writerows(summary)
-    csv_file.seek(0)
-    print(csv_file.read())
-
+    # Write results to the DB, if possible, otherwise print as CSV
+    if 'db' not in config or 'user' not in config['db'] or config['db']['user'] == 'changeme':
+        # Render results as CSV
+        csv_file = StringIO()
+        csv_writer = csv.DictWriter(csv_file,
+                                    fieldnames=['device_id', 'channel_id', 'channel_direction', 'channel_type', 'channel_usage', 'timestamp'])
+        csv_writer.writerows(detailed_usage)
+        csv_file.seek(0)
+        print(csv_file.read())
+    else:
+        write_to_db(detailed_usage)

@@ -58,9 +58,6 @@ def get_most_recent_timestamp() -> (int, int):
     with closing(mysql.connector.connect(**config['db'])) as conn:
         with closing(conn.cursor()) as cur:
             cur.execute('SELECT max(timestamp) AS most_recent FROM usage_data;', [])
-            # TODO: I'm not positive what the mysql cursor returns - the next line may
-            #  need to be replaced with
-            #  return cur.fetchone()['most_recent']
             try:
                 # Overlap by 31 minutes to make sure no data is missed
                 since = cur.fetchone()[0] - 1860

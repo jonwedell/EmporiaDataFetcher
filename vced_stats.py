@@ -38,9 +38,8 @@ inventoryRequest = DeviceInventoryRequest()
 inventoryRequest.auth_token = auth_token
 inventoryResponse = stub.GetDevices(inventoryRequest)
 
-# Get the list of active vue2 devices
-devices = [dev for dev in inventoryResponse.devices if dev.model == DeviceInventoryResponse.Device.DeviceModel.Vue2]
-
+# Get the list of active vue2 (1) and vue3 (7) devices. (See partner_api2.proto lines 105-122)
+devices = [dev for dev in inventoryResponse.devices if dev.model in [1,7]]
 
 def write_to_db(values: List[dict]) -> None:
     with closing(mysql.connector.connect(**config['db'])) as conn:

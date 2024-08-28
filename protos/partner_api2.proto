@@ -117,6 +117,8 @@ message DeviceInventoryResponse
         	EVCharger			= 4;
         	// Emporia Home Battery
         	Battery				= 5;
+        	// Vue3
+        	Vue3                = 7;
         }
     	    	
         string 			manufacturer_device_id 	= 1;			// identifies this device for future API requests such as building DeviceUsageRequest

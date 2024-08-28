@@ -38,9 +38,8 @@ inventoryRequest = DeviceInventoryRequest()
 inventoryRequest.auth_token = auth_token
 inventoryResponse = stub.GetDevices(inventoryRequest)
 
-# Get the list of active vue2 devices
-devices = [dev for dev in inventoryResponse.devices if dev.model == DeviceInventoryResponse.Device.DeviceModel.Vue2]
-
+# Get the list of active vue2 (1) and vue3 (7) devices. (See partner_api2.proto lines 105-122)
+devices = [dev for dev in inventoryResponse.devices if dev.model in [1,7]]
 
 def write_to_db(values: List[dict]) -> None:
     with closing(mysql.connector.connect(**config['db'])) as conn:
@@ -58,9 +57,6 @@ def get_most_recent_timestamp() -> (int, int):
     with closing(mysql.connector.connect(**config['db'])) as conn:
         with closing(conn.cursor()) as cur:
             cur.execute('SELECT max(timestamp) AS most_recent FROM usage_data;', [])
-            # TODO: I'm not positive what the mysql cursor returns - the next line may
-            #  need to be replaced with
-            #  return cur.fetchone()['most_recent']
             try:
                 # Overlap by 31 minutes to make sure no data is missed
                 since = cur.fetchone()[0] - 1860

@@ -5,13 +5,12 @@ import math
 import os
 import pathlib
 import time
-from contextlib import closing
 from io import StringIO
 from typing import List
 
 import grpc
-import mysql.connector
 
+import mysql_functions
 import partner_api2_pb2_grpc as api
 from partner_api2_pb2 import *
 
@@ -40,37 +39,6 @@ inventoryResponse = stub.GetDevices(inventoryRequest)
 
 # Get the list of active vue2 (1) and vue3 (7) devices. (See partner_api2.proto lines 105-122)
 devices = [dev for dev in inventoryResponse.devices if dev.model in [1,7]]
-
-def write_to_db(values: List[dict]) -> None:
-    with closing(mysql.connector.connect(**config['db'])) as conn:
-        with closing(conn.cursor()) as cur:
-            for data in values:
-                print(data)
-                cur.execute(
-                    'INSERT IGNORE INTO usage_data (device_id, channel_id, channel_type, channel_direction, channel_usage, timestamp) VALUES (%s, %s, %s, %s, %s, %s);',
-                    [data['device_id'], data['channel_id'], data['channel_type'], data['channel_direction'], data['channel_usage'],
-                     data['timestamp']])
-        conn.commit()
-
-
-def get_most_recent_timestamp() -> (int, int):
-    with closing(mysql.connector.connect(**config['db'])) as conn:
-        with closing(conn.cursor()) as cur:
-            cur.execute('SELECT max(timestamp) AS most_recent FROM usage_data;', [])
-            try:
-                # Overlap by 31 minutes to make sure no data is missed
-                since = cur.fetchone()[0] - 1860
-                one_week_ago = int(time.time()) - 604800
-                if since < one_week_ago:
-                    print("Warning! No data records detected for more than a week. Fetching the next needed week "
-                          "rather than the most recent week.")
-                    return since, since + 604800
-                else:
-                    return since, None
-            except:
-                print('Detected first run, getting data for last week. If seen more than once, this code is buggy.')
-                return int(time.time()) - 604800, int(time.time())
-
 
 def store_detailed_usage(since: int, until: int = None) -> List[dict]:
     """ Gets usage info for all circuits on all devices. Returns usage for all circuits as a
@@ -127,7 +95,7 @@ def store_detailed_usage(since: int, until: int = None) -> List[dict]:
 
 
 if __name__ == "__main__":
-    get_data_since, get_data_until = get_most_recent_timestamp()
+    get_data_since, get_data_until = mysql_functions.get_most_recent_timestamp()
     detailed_usage = store_detailed_usage(get_data_since, get_data_until)
 
     # Write results to the DB, if possible, otherwise print as CSV
@@ -140,4 +108,4 @@ if __name__ == "__main__":
         csv_file.seek(0)
         print(csv_file.read())
     else:
-        write_to_db(detailed_usage)
+        mysql_functions.write_to_db(detailed_usage)

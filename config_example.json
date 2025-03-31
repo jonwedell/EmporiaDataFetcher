@@ -3,6 +3,12 @@
   "username": "changeme",
   "api_root": "partner.emporiaenergy.com",
   "api_port": "50052",
+
+  "client_id": "changeme",
+  "client_secret": "changeme",
+  "rest_api_root": "https://p-api.emporiaenergy.com",
+  "cognito_domain": "https://partner-emporiaenergy-com.auth.us-east-2.amazoncognito.com",
+
   "db": {
     "host": "localhost",
     "user": "changeme",

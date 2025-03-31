@@ -25,6 +25,7 @@ def write_to_db(values: List[dict]) -> None:
 
 
 def get_most_recent_timestamp() -> (int, int):
+    # Default to getting the last hour if we don't have a DB
     if 'db' not in config or 'user' not in config['db'] or config['db']['user'] == 'changeme':
         return int(time.time()) - 3600,int(time.time())
 

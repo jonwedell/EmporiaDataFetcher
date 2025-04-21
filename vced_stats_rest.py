@@ -2,7 +2,6 @@
 import base64
 import csv
 import datetime
-import itertools
 import json
 import logging
 import os
@@ -74,8 +73,14 @@ def get_usage_during_period(start_timestamp, end_timestamp) -> list[dict]:
     monitor_ids = [_['device_id'] for _ in devices['devices'] if _['category'] == "MONITOR"]
 
     monitor_info = {}
+
+    def batch(iterable, size):
+        len_iter = len(iterable)
+        for ndx in range(0, len_iter, size):
+            yield iterable[ndx:min(ndx + size, len_iter)]
+
     # We have to operate on at most 100 at a time due to API restrictions
-    for chunk in itertools.batched(monitor_ids, 100):
+    for chunk in batch(monitor_ids, 100):
         # Get the information for each of the monitors
         r = requests.get(config['rest_api_root'] + "/v1/devices/energy-monitors",
                          headers={'Authorization': auth_token}, params={'device_ids': chunk})
